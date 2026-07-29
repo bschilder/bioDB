@@ -27,6 +27,9 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.orphanet` -- Orphanet rare-disease epidemiology
+  (Orphadata ``en_product9_prev``, CC-BY-4.0): per-ORPHAcode prevalence
+  band → per-individual K for liability-threshold effect modeling.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
@@ -54,6 +57,7 @@ from biodb import (
     ontology_owl,
     opentargets,
     opentargets_graphql,
+    orphanet,
     pubmed,
     snomed,
     string,
@@ -209,6 +213,7 @@ __all__ = [
     "ontology_owl",
     "opentargets",
     "opentargets_graphql",
+    "orphanet",
     "pubmed",
     "query_disease",
     "query_drug",
