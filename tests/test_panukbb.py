@@ -9,6 +9,7 @@ probe the live S3 bucket + htslib remote tabix and are skipped in CI.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -247,6 +248,7 @@ def test_live_phenotype_manifest() -> None:
 
 @pytest.mark.network
 @pytest.mark.slow
+@pytest.mark.skipif(shutil.which("tabix") is None, reason="htslib 'tabix' binary not installed")
 def test_live_sumstats_region_apoe() -> None:
     aws = "s3://pan-ukb-us-east-1/sumstats_flat_files/biomarkers-30600-both_sexes-irnt.tsv.bgz"
     try:
