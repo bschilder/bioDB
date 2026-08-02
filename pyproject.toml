@@ -89,6 +89,12 @@ protein = [
 mapping = [
     "gprofiler-official>=1.0",
 ]
+# Pan-UKBB remote-tabix Python backend (biodb.panukbb.sumstats_region,
+# backend="pysam"). The DEFAULT backend shells out to the htslib ``tabix``
+# CLI — present in any bcftools/seqlab environment — so pysam is optional.
+panukbb = [
+    "pysam>=0.22",
+]
 docs = [
     "sphinx>=7.2",
     "sphinx-rtd-theme>=2.0",
@@ -99,7 +105,10 @@ docs = [
 test = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
-    "ruff>=0.5",
+    # Cap below 0.16: its formatter reflows several already-committed files, so
+    # an unpinned `ruff format --check .` in CI drifts red on unrelated code.
+    # Bump deliberately alongside a repo-wide reformat, not incidentally.
+    "ruff>=0.5,<0.16",
     "coverage-badge>=1.1",
     # Mock HTTP for ``requests``-based clients (gwas_atlas, gprofiler,
     # msigdb, harmonizome, ...). Used by every source-client test so the
