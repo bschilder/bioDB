@@ -38,9 +38,11 @@ import csv
 import gzip
 import io
 import logging
+import os
 import shutil
 import subprocess
-from collections.abc import Mapping
+import tempfile
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -506,4 +508,101 @@ def sumstats_region(
     data_url, idx_url = _sumstats_urls(pheno)
     header = _flat_header_columns(data_url)
     lines = _tabix_fetch(data_url, idx_url, chrom, start, end, backend)
+    return _parse_sumstats_lines(header, lines, ancestries, add_z=add_z, add_pval=add_pval)
+
+
+def _regions_to_bed(regions: Iterable[tuple[str, int, int]]) -> str:
+    """Serialize 1-based-inclusive ``(chrom, start, end)`` regions to BED text.
+
+    BED is 0-based half-open, so ``start`` shifts down by one and ``end`` is kept.
+    A leading ``chr`` is stripped (Pan-UKBB contigs are unprefixed).
+    """
+    rows = []
+    for chrom, start, end in regions:
+        c = str(chrom)
+        c = c[3:] if c.lower().startswith("chr") else c
+        rows.append(f"{c}\t{int(start) - 1}\t{int(end)}")
+    return ("\n".join(rows) + "\n") if rows else ""
+
+
+def _tabix_fetch_regions(
+    data_url: str, idx_url: str, regions: list[tuple[str, int, int]], backend: str
+) -> list[str]:
+    """Fetch many regions from one file in a single htslib-tabix pass (``-R bed``)."""
+    local_index = _ensure_local_index(idx_url)
+    if backend == "auto":
+        backend = "pysam" if _has_pysam() else "cli"
+
+    if backend == "pysam":
+        import pysam  # noqa: PLC0415
+
+        tbx = pysam.TabixFile(data_url, index=str(local_index))
+        try:
+            out: list[str] = []
+            for chrom, start, end in regions:
+                c = str(chrom)
+                c = c[3:] if c.lower().startswith("chr") else c
+                out.extend(tbx.fetch(c, int(start) - 1, int(end)))  # 0-based half-open
+            return out
+        finally:
+            tbx.close()
+
+    if backend == "cli":
+        if shutil.which("tabix") is None:
+            raise RuntimeError(
+                "The htslib 'tabix' binary is required for sumstats_regions "
+                "(default backend). Install htslib, or pass backend='pysam'."
+            )
+        combined = f"{data_url}##idx##{local_index}"
+        fd, bed_path = tempfile.mkstemp(suffix=".bed")
+        try:
+            with os.fdopen(fd, "w") as fh:
+                fh.write(_regions_to_bed(regions))
+            proc = subprocess.run(
+                ["tabix", "-R", bed_path, combined], capture_output=True, text=True, check=False
+            )
+        finally:
+            os.unlink(bed_path)
+        if proc.returncode != 0:
+            raise RuntimeError(f"tabix -R failed: {proc.stderr.strip()}")
+        return [ln for ln in proc.stdout.splitlines() if ln]
+
+    raise ValueError(f"unknown backend: {backend!r} (expected 'auto'|'cli'|'pysam')")
+
+
+def sumstats_regions(
+    pheno: str | Mapping[str, Any] | pd.Series,
+    regions: Iterable[tuple[str, int, int]],
+    *,
+    ancestries: tuple[str, ...] = ("EUR",),
+    add_z: bool = True,
+    add_pval: bool = False,
+    backend: str = "auto",
+) -> pd.DataFrame:
+    """Fetch many regions from one phenotype in a single tabix pass.
+
+    The efficient primitive for materializing a training set: one streamed
+    ``tabix -R`` call returns every variant across all requested windows, instead
+    of one remote query per window. (htslib may merge overlapping regions and
+    does not preserve input order; callers assign variants to windows by
+    position, so neither matters.)
+
+    Parameters
+    ----------
+    pheno
+        A flat-file ``aws_path`` string, or a manifest row carrying ``aws_path``.
+    regions
+        Iterable of ``(chrom, start, end)`` in **GRCh37/hg19**, 1-based inclusive.
+    ancestries, add_z, add_pval, backend
+        As in :func:`sumstats_region`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Tidy per-variant frame across all regions (see
+        :func:`_parse_sumstats_lines`).
+    """
+    data_url, idx_url = _sumstats_urls(pheno)
+    header = _flat_header_columns(data_url)
+    lines = _tabix_fetch_regions(data_url, idx_url, list(regions), backend)
     return _parse_sumstats_lines(header, lines, ancestries, add_z=add_z, add_pval=add_pval)

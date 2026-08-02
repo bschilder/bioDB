@@ -151,6 +151,16 @@ def test_sumstats_urls_from_aws_path_string() -> None:
     )
 
 
+def test_regions_to_bed_0based_halfopen_and_prefix_stripped() -> None:
+    """1-based-inclusive regions → BED (0-based half-open), ``chr`` stripped."""
+    bed = panukbb._regions_to_bed([("chr19", 100, 200), ("1", 5, 5)])
+    assert bed == "19\t99\t200\n1\t4\t5\n"
+
+
+def test_regions_to_bed_empty() -> None:
+    assert panukbb._regions_to_bed([]) == ""
+
+
 def test_sumstats_urls_from_manifest_row() -> None:
     """A manifest row (dict/Series) resolves via its aws_path / aws_path_tabix."""
     row = {
@@ -259,3 +269,20 @@ def test_live_sumstats_region_apoe() -> None:
         raise
     assert len(df) > 50  # dense sumstats — every variant, not just genome-wide-sig
     assert df["beta_EUR"].notna().any()
+
+
+@pytest.mark.network
+@pytest.mark.slow
+@pytest.mark.skipif(shutil.which("tabix") is None, reason="htslib 'tabix' binary not installed")
+def test_live_sumstats_regions_multi() -> None:
+    """One tabix -R pass returns variants from multiple windows across contigs."""
+    aws = "s3://pan-ukb-us-east-1/sumstats_flat_files/biomarkers-30600-both_sexes-irnt.tsv.bgz"
+    regions = [("19", 45405000, 45410000), ("1", 55505000, 55515000)]  # APOE + PCSK9 (hg19)
+    try:
+        df = panukbb.sumstats_regions(aws, regions, ancestries=("EUR",))
+    except Exception as exc:  # noqa: BLE001
+        if is_upstream_outage(exc):
+            pytest.skip(f"Pan-UKBB S3 unavailable: {exc}")
+        raise
+    assert len(df) > 50
+    assert (df["chrom"] == "19").any() and (df["chrom"] == "1").any()  # both windows present
